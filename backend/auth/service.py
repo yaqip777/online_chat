@@ -1,0 +1,133 @@
+from datetime import datetime, timedelta, timezone
+from os import getenv
+from typing import Optional, TypedDict
+
+import bcrypt
+from dotenv import load_dotenv
+from fastapi import HTTPException, status
+from jose import JWTError
+import jwt
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.auth.models import User
+from backend.auth.schemes.post import LoginSchema, SignupSchema
+
+load_dotenv()
+
+SECRET_KEY = getenv("ACCESS_SECRET_KEY")
+REFRESH_SECRET_KEY = getenv("REFRESH_SECRET_KEY")
+ALGORITHM = "HS256"
+
+
+class TokenData(TypedDict):
+    username: str
+
+class AuthService:
+    @staticmethod
+    async def sign_up(data: SignupSchema, db: AsyncSession):
+        result = await db.execute(select(User).where(User.username == data.username))
+        if result.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already exists",
+            )
+
+        user = User(
+            username=data.username,
+            email=data.email, 
+            password=AuthService.get_password_hash(data.password),
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+        tokens = {
+            "access_token": AuthService.create_access_token({"username": user.username}),
+            "refresh_token": AuthService.create_refresh_token({"username": user.username}),
+        }
+        return {"message": "User registered successfully", "tokens": tokens}
+
+    @staticmethod
+    async def login(data: LoginSchema, db: AsyncSession):
+        result = await db.execute(select(User).where(User.email == data.email))
+        user = result.scalar_one_or_none()
+
+        if user is None or not AuthService.verify_password(data.password, user.password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password",  
+            )
+
+        tokens = {
+            "access_token": AuthService.create_access_token({"username": user.username}),
+            "refresh_token": AuthService.create_refresh_token({"username": user.username}),
+        }
+        return {"message": "Login successful", "tokens": tokens}    
+    
+    @staticmethod
+    def get_password_hash(password: str) -> str:
+        return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+    @staticmethod
+    def verify_password(plain_password: str, hashed_password: str) -> bool:
+        return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
+
+    @staticmethod
+    def create_access_token(data: dict) -> str:
+        to_encode = data.copy()
+        expire = datetime.now(timezone.utc) + timedelta(minutes=30)
+        to_encode.update({"exp": expire})
+        return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+    @staticmethod
+    def create_refresh_token(data: dict) -> str:
+        to_encode = data.copy()
+        expire = datetime.now(timezone.utc) + timedelta(days=7)
+        to_encode.update({"exp": expire})
+        return jwt.encode(to_encode, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
+
+    
+    @staticmethod
+    async def get_current_user(token: str, db: AsyncSession) -> User:
+        credentials_exception = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+        )
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            username = payload.get("username")
+            if username is None:
+                raise credentials_exception
+        except jwt.PyJWTError:  
+            raise credentials_exception
+
+        result = await db.execute(select(User).where(User.username == username))
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise credentials_exception
+
+        return user
+
+    
+    @staticmethod
+    async def refresh_access_token(refresh_token: str, db: AsyncSession) -> dict:
+        credentials_exception = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate refresh token",
+        )
+        try:
+            payload = jwt.decode(refresh_token, REFRESH_SECRET_KEY, algorithms=[ALGORITHM])
+            username = payload.get("username")
+            if username is None:
+                raise credentials_exception
+        except jwt.PyJWTError:  
+            raise credentials_exception
+
+        result = await db.execute(select(User).where(User.username == username))
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise credentials_exception
+
+        new_access_token = AuthService.create_access_token({"username": user.username})
+        return {"access_token": new_access_token}
