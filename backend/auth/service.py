@@ -21,16 +21,17 @@ ALGORITHM = "HS256"
 
 
 class TokenData(TypedDict):
-    username: str
+    email: str
+
 
 class AuthService:
     @staticmethod
     async def sign_up(data: SignupSchema, db: AsyncSession):
-        result = await db.execute(select(User).where(User.username == data.username))
+        result = await db.execute(select(User).where(User.email == data.email))
         if result.scalar_one_or_none() is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Username already exists",
+                detail="Email already exists",
             )
 
         user = User(
@@ -43,8 +44,8 @@ class AuthService:
         await db.refresh(user)
 
         tokens = {
-            "access_token": AuthService.create_access_token({"username": user.username}),
-            "refresh_token": AuthService.create_refresh_token({"username": user.username}),
+            "access_token": AuthService.create_access_token({"email": user.email}),
+            "refresh_token": AuthService.create_refresh_token({"email": user.email}),
         }
         return {"message": "User registered successfully", "tokens": tokens}
 
@@ -60,8 +61,8 @@ class AuthService:
             )
 
         tokens = {
-            "access_token": AuthService.create_access_token({"username": user.username}),
-            "refresh_token": AuthService.create_refresh_token({"username": user.username}),
+            "access_token": AuthService.create_access_token({"email": user.email}),
+            "refresh_token": AuthService.create_refresh_token({"email": user.email}),
         }
         return {"message": "Login successful", "tokens": tokens}    
     
@@ -86,7 +87,6 @@ class AuthService:
         expire = datetime.now(timezone.utc) + timedelta(days=7)
         to_encode.update({"exp": expire})
         return jwt.encode(to_encode, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
-
     
     @staticmethod
     async def get_current_user(token: str, db: AsyncSession) -> User:
@@ -96,20 +96,19 @@ class AuthService:
         )
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            username = payload.get("username")
-            if username is None:
+            email = payload.get("email")
+            if email is None:
                 raise credentials_exception
         except jwt.PyJWTError:  
             raise credentials_exception
 
-        result = await db.execute(select(User).where(User.username == username))
+        result = await db.execute(select(User).where(User.email == email))
         user = result.scalar_one_or_none()
         if user is None:
             raise credentials_exception
 
         return user
 
-    
     @staticmethod
     async def refresh_access_token(refresh_token: str, db: AsyncSession) -> dict:
         credentials_exception = HTTPException(
@@ -118,16 +117,16 @@ class AuthService:
         )
         try:
             payload = jwt.decode(refresh_token, REFRESH_SECRET_KEY, algorithms=[ALGORITHM])
-            username = payload.get("username")
-            if username is None:
+            email = payload.get("email")
+            if email is None:
                 raise credentials_exception
         except jwt.PyJWTError:  
             raise credentials_exception
 
-        result = await db.execute(select(User).where(User.username == username))
+        result = await db.execute(select(User).where(User.email == email))
         user = result.scalar_one_or_none()
         if user is None:
             raise credentials_exception
 
-        new_access_token = AuthService.create_access_token({"username": user.username})
+        new_access_token = AuthService.create_access_token({"email": user.email})
         return {"access_token": new_access_token}
