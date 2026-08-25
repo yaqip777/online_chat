@@ -8,8 +8,8 @@ from backend.posts.schemes.post import PostResponseSchema
 
 router = APIRouter(prefix="/posts", tags=["Posts"])
 
-IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"]
-VIDEO_EXTENSIONS = [".mp4", ".mov", ".avi", ".mkv"]
+IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png"]
+VIDEO_EXTENSIONS = [".mp4", ".mov",".mkv"]
 
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  
 MAX_VIDEO_SIZE = 50 * 1024 * 1024  

@@ -1,19 +1,6 @@
 from datetime import datetime
 from pydantic import BaseModel
 
-class PostCreateSchema(BaseModel):
-    text: str | None = None
-
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "text": "Salom, bu mening birinchi postim!"
-                }
-            ]
-        }
-    }
-
 class PostResponseSchema(BaseModel):
     id: int
     text: str | None
