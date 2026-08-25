@@ -9,9 +9,10 @@ from jose import JWTError
 import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from fastapi import Depends, Header, HTTPException, status
 from backend.auth.models import User
 from backend.auth.schemes.post import LoginSchema, SignupSchema
+from backend.database import get_db
 
 load_dotenv()
 
@@ -130,3 +131,28 @@ class AuthService:
 
         new_access_token = AuthService.create_access_token({"email": user.email})
         return {"access_token": new_access_token}
+
+
+    @staticmethod
+    async def get_current_user(
+        token: str = Header(..., alias="token"), 
+        db: AsyncSession = Depends(get_db)
+    ) -> User:
+        credentials_exception = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+        )
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            email = payload.get("email")
+            if email is None:
+                raise credentials_exception
+        except jwt.PyJWTError:  
+            raise credentials_exception
+
+        result = await db.execute(select(User).where(User.email == email))
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise credentials_exception
+
+        return user
