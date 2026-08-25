@@ -13,7 +13,7 @@ dependencies = [
     "bcrypt>=5.0.0",
     "email-validator>=2.3.0",
     "fastapi>=0.141.1",
-    "jose>=1.0.0",
+    "python-jose[cryptography]>=3.3.0",
     "passlib>=1.7.4",
     "psycopg2-binary>=2.9.12",
     "pydantic>=2.13.4",
@@ -24,9 +24,9 @@ dependencies = [
     "uvicorn>=0.52.4",
 ]
 
-[project.scripts]
-online-chat = "online_chat:main"
-
 [build-system]
-requires = ["uv_build>=0.12.5,<0.13.0"]
-build-backend = "uv_build"
+requires = ["setuptools>=61.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["backend"]
