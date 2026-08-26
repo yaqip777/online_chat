@@ -4,12 +4,11 @@ from typing import Optional, TypedDict
 
 import bcrypt
 from dotenv import load_dotenv
-from fastapi import HTTPException, status
-from jose import JWTError
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import Depends, Header, HTTPException, status
 from backend.auth.models import User
 from backend.auth.schemes.post import LoginSchema, SignupSchema
 from backend.database import get_db
@@ -19,6 +18,8 @@ load_dotenv()
 SECRET_KEY = getenv("ACCESS_SECRET_KEY")
 REFRESH_SECRET_KEY = getenv("REFRESH_SECRET_KEY")
 ALGORITHM = "HS256"
+
+bearer_scheme = HTTPBearer()
 
 
 class TokenData(TypedDict):
@@ -37,6 +38,8 @@ class AuthService:
 
         user = User(
             username=data.username,
+            first_name=data.first_name,
+            last_name=data.last_name,
             email=data.email, 
             password=AuthService.get_password_hash(data.password),
         )
@@ -90,27 +93,6 @@ class AuthService:
         return jwt.encode(to_encode, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
     
     @staticmethod
-    async def get_current_user(token: str, db: AsyncSession) -> User:
-        credentials_exception = HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-        )
-        try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            email = payload.get("email")
-            if email is None:
-                raise credentials_exception
-        except jwt.PyJWTError:  
-            raise credentials_exception
-
-        result = await db.execute(select(User).where(User.email == email))
-        user = result.scalar_one_or_none()
-        if user is None:
-            raise credentials_exception
-
-        return user
-
-    @staticmethod
     async def refresh_access_token(refresh_token: str, db: AsyncSession) -> dict:
         credentials_exception = HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -135,19 +117,19 @@ class AuthService:
 
     @staticmethod
     async def get_current_user(
-        token: str = Header(..., alias="token"), 
-        db: AsyncSession = Depends(get_db)
+        credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+        db: AsyncSession = Depends(get_db),
     ) -> User:
         credentials_exception = HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
         )
         try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
             email = payload.get("email")
             if email is None:
                 raise credentials_exception
-        except jwt.PyJWTError:  
+        except jwt.PyJWTError:
             raise credentials_exception
 
         result = await db.execute(select(User).where(User.email == email))

@@ -1,13 +1,12 @@
 from fastapi import APIRouter, Depends
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
+from backend.auth.models import User
 from backend.auth.schemes.post import RefreshSchema
 from backend.auth.schemes.post import LoginSchema, SignupSchema
 from backend.auth.service import AuthService
 from backend.database import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-bearer_scheme = HTTPBearer()
 
 @router.post("/signup")
 async def signup(data: SignupSchema, db: AsyncSession = Depends(get_db)):
@@ -20,12 +19,14 @@ async def login(data: LoginSchema, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/me")
-async def me(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    db: AsyncSession = Depends(get_db),
-):
-    user = await AuthService.get_current_user(credentials.credentials, db)
-    return {"id": user.id, "username": user.username}
+async def me(current_user: User = Depends(AuthService.get_current_user)):
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "first_name": current_user.first_name,
+        "last_name": current_user.last_name,
+        "email": current_user.email,
+    }
 
 @router.post("/refresh")
 async def refresh(data: RefreshSchema, db: AsyncSession = Depends(get_db)):
