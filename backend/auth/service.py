@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta, timezone
 from os import getenv
 from typing import Optional, TypedDict
+import os
+import shutil
 
 import bcrypt
 from dotenv import load_dotenv
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, UploadFile, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 from sqlalchemy import select
@@ -18,6 +20,12 @@ load_dotenv()
 SECRET_KEY = getenv("ACCESS_SECRET_KEY")
 REFRESH_SECRET_KEY = getenv("REFRESH_SECRET_KEY")
 ALGORITHM = "HS256"
+
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+PROFILE_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png"]
+MAX_PROFILE_IMAGE_SIZE = 10 * 1024 * 1024
 
 bearer_scheme = HTTPBearer()
 optional_bearer_scheme = HTTPBearer(auto_error=False)
@@ -115,6 +123,38 @@ class AuthService:
         new_access_token = AuthService.create_access_token({"email": user.email})
         return {"access_token": new_access_token}
 
+
+    @staticmethod
+    async def update_profile_picture(db: AsyncSession, user: User, image: UploadFile) -> User:
+        if not image.filename:
+            raise HTTPException(status_code=400, detail="Rasm tanlanmadi")
+
+        file_ext = image.filename[image.filename.rfind("."):].lower()
+        if file_ext not in PROFILE_IMAGE_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail="Faqat rasm formatidagi fayllar yuklanishi mumkin!",
+            )
+
+        content = await image.read()
+        if len(content) > MAX_PROFILE_IMAGE_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail="Rasm hajmi 10 MB dan oshmasligi kerak!",
+            )
+        await image.seek(0)
+
+        image_path = os.path.join(
+            UPLOAD_DIR, f"avatar_{user.id}_{datetime.now().timestamp()}{file_ext}"
+        )
+        with open(image_path, "wb") as buffer:
+            shutil.copyfileobj(image.file, buffer)
+
+        user.profile_picture = f"/{image_path}".replace("\\", "/")
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        return user
 
     @staticmethod
     async def get_current_user(
