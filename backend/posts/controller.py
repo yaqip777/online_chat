@@ -22,6 +22,16 @@ async def create_post(
     db: AsyncSession = Depends(get_db),
     current_user = Depends(AuthService.get_current_user)
 ):
+    has_text = text is not None and text.strip() != ""
+    has_image = bool(image and image.filename)
+    has_video = bool(video and video.filename)
+
+    if not has_text and not has_image and not has_video:
+        raise HTTPException(
+            status_code=400,
+            detail="Post uchun matn, rasm yoki video kamida bittasi kerak!",
+        )
+
     if image and image.filename:
         file_ext = image.filename[image.filename.rfind(".") :].lower()
         if file_ext not in IMAGE_EXTENSIONS:
@@ -34,7 +44,7 @@ async def create_post(
         if len(image_content) > MAX_IMAGE_SIZE:
             raise HTTPException(
                 status_code=400,
-                detail="Rasm hajmi 5 MB dan oshmasligi kerak!",
+                detail="Rasm hajmi 10 MB dan oshmasligi kerak!",
             )
         await image.seek(0) 
 
@@ -66,6 +76,30 @@ async def create_post(
 async def get_posts(
     cursor: datetime | None = None,
     limit: int = 10,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(AuthService.get_current_user_optional),
 ):
-    return await PostService.get_posts_paginated(db=db, cursor=cursor, limit=limit)
+    current_user_id = current_user.id if current_user else None
+    return await PostService.get_posts_paginated(
+        db=db, cursor=cursor, limit=limit, current_user_id=current_user_id
+    )
+
+
+@router.post("/{post_id}/like")
+async def like_post(
+    post_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(AuthService.get_current_user),
+):
+    await PostService.like_post(db=db, user_id=current_user.id, post_id=post_id)
+    return {"message": "Layk qo'yildi"}
+
+
+@router.delete("/{post_id}/like")
+async def unlike_post(
+    post_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(AuthService.get_current_user),
+):
+    await PostService.unlike_post(db=db, user_id=current_user.id, post_id=post_id)
+    return {"message": "Layk olib tashlandi"}

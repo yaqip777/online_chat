@@ -24,5 +24,7 @@ class Message(Base):
         ForeignKey("conversations.id", ondelete="CASCADE")
     )
     sender_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    text: Mapped[str] = mapped_column(String)
+    text: Mapped[str | None] = mapped_column(String, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    video_url: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

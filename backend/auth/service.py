@@ -20,6 +20,7 @@ REFRESH_SECRET_KEY = getenv("REFRESH_SECRET_KEY")
 ALGORITHM = "HS256"
 
 bearer_scheme = HTTPBearer()
+optional_bearer_scheme = HTTPBearer(auto_error=False)
 
 
 class TokenData(TypedDict):
@@ -138,3 +139,21 @@ class AuthService:
             raise credentials_exception
 
         return user
+
+    @staticmethod
+    async def get_current_user_optional(
+        credentials: HTTPAuthorizationCredentials | None = Depends(optional_bearer_scheme),
+        db: AsyncSession = Depends(get_db),
+    ) -> User | None:
+        if credentials is None:
+            return None
+        try:
+            payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+            email = payload.get("email")
+            if email is None:
+                return None
+        except jwt.PyJWTError:
+            return None
+
+        result = await db.execute(select(User).where(User.email == email))
+        return result.scalar_one_or_none()

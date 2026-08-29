@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from backend.auth.controller import router as auth_router
 from backend.posts.controller import router as posts_router
 from backend.websocket.controller import router as websocket_router
@@ -7,6 +8,8 @@ from backend.stories.controller import router as stories_router
 from backend.database import Base, engine
 
 app = FastAPI()
+
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 app.include_router(auth_router)
 app.include_router(posts_router)
