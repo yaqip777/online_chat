@@ -8,8 +8,8 @@ from backend.database import Base
  
 class Conversation(Base):
 
-    tablename = "conversations"
- 
+    __tablename__ = "conversations"
+
     id: Mapped[int] = mapped_column(primary_key=True)
     user_one_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     user_two_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
@@ -17,7 +17,7 @@ class Conversation(Base):
  
  
 class Message(Base):
-    tablename = "messages"
+    __tablename__ = "messages"
  
     id: Mapped[int] = mapped_column(primary_key=True)
     conversation_id: Mapped[int] = mapped_column(
