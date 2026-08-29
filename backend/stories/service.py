@@ -1,17 +1,17 @@
 import os
 import shutil
 from datetime import datetime, timezone
-
+ 
 from fastapi import UploadFile
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
+ 
 from backend.stories.models import Story
-
+ 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-
+ 
+ 
 class StoryService:
     @staticmethod
     async def create_story(
@@ -22,30 +22,29 @@ class StoryService:
     ) -> Story:
         image_url = None
         video_url = None
-
+ 
         if image:
             image_path = os.path.join(
                 UPLOAD_DIR, f"story_img_{datetime.now().timestamp()}_{image.filename}"
             )
             with open(image_path, "wb") as buffer:
                 shutil.copyfileobj(image.file, buffer)
-            image_url = f"/{image_path}"
-
+            image_url = f"/{image_path}".replace("\\", "/")
+ 
         if video:
             video_path = os.path.join(
                 UPLOAD_DIR, f"story_vid_{datetime.now().timestamp()}_{video.filename}"
             )
             with open(video_path, "wb") as buffer:
                 shutil.copyfileobj(video.file, buffer)
-            video_url = f"/{video_path}"
-
+            video_url = f"/{video_path}".replace("\\", "/")
+ 
         new_story = Story(user_id=user_id, image_url=image_url, video_url=video_url)
         db.add(new_story)
         await db.commit()
         await db.refresh(new_story)
         return new_story
-
-
+ 
     @staticmethod
     async def get_active_stories_paginated(
         db: AsyncSession,
@@ -63,8 +62,7 @@ class StoryService:
         query = query.order_by(Story.created_at.desc()).limit(limit)
         result = await db.execute(query)
         return result.scalars().all()
-
-
+ 
     @staticmethod
     async def get_user_active_stories(db: AsyncSession, user_id: int) -> list[Story]:
         now = datetime.utcnow()

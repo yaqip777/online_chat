@@ -1,12 +1,27 @@
+import os
+import shutil
 from datetime import datetime, timezone
- 
+
+from fastapi import UploadFile
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
  
 from backend.auth.models import User
 from backend.chat.models import Conversation, Message
 from backend.websocket.service import manager
- 
+
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+def _safe_save(upload: UploadFile, prefix: str) -> str:
+    file_ext = os.path.splitext(upload.filename)[1].lower()
+    safe_name = f"{prefix}_{datetime.now().timestamp()}{file_ext}"
+    path = os.path.join(UPLOAD_DIR, safe_name)
+    with open(path, "wb") as buffer:
+        shutil.copyfileobj(upload.file, buffer)
+    return f"/{path}".replace("\\", "/")
+
  
 class ChatService:
     @staticmethod
@@ -43,14 +58,26 @@ class ChatService:
  
     @staticmethod
     async def send_message(
-        db: AsyncSession, sender_id: int, receiver_id: int, text: str
+        db: AsyncSession,
+        sender_id: int,
+        receiver_id: int,
+        text: str | None = None,
+        image: UploadFile | None = None,
+        video: UploadFile | None = None,
     ) -> Message:
         conversation = await ChatService.get_or_create_conversation(
             db, sender_id, receiver_id
         )
- 
+
+        image_url = _safe_save(image, "chat_img") if image and image.filename else None
+        video_url = _safe_save(video, "chat_vid") if video and video.filename else None
+
         message = Message(
-            conversation_id=conversation.id, sender_id=sender_id, text=text
+            conversation_id=conversation.id,
+            sender_id=sender_id,
+            text=text,
+            image_url=image_url,
+            video_url=video_url,
         )
         db.add(message)
         await db.commit()
@@ -63,6 +90,8 @@ class ChatService:
                 "conversation_id": conversation.id,
                 "from_user_id": sender_id,
                 "text": text,
+                "image_url": image_url,
+                "video_url": video_url,
             },
         )
  

@@ -5,14 +5,16 @@ from pydantic import BaseModel
  
 class SendMessageSchema(BaseModel):
     receiver_id: int
-    text: str
+    text: str | None = None
  
  
 class MessageResponseSchema(BaseModel):
     id: int
     conversation_id: int
     sender_id: int
-    text: str
+    text: str | None
+    image_url: str | None
+    video_url: str | None
     created_at: datetime
  
     model_config = {"from_attributes": True}
