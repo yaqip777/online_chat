@@ -29,7 +29,7 @@ class StoryService:
             )
             with open(image_path, "wb") as buffer:
                 shutil.copyfileobj(image.file, buffer)
-            image_url = f"/{image_path}".replace("\\", "/")
+            image_url = os.path.basename(image_path)
  
         if video:
             video_path = os.path.join(
@@ -37,7 +37,7 @@ class StoryService:
             )
             with open(video_path, "wb") as buffer:
                 shutil.copyfileobj(video.file, buffer)
-            video_url = f"/{video_path}".replace("\\", "/")
+            video_url = os.path.basename(video_path)
  
         new_story = Story(user_id=user_id, image_url=image_url, video_url=video_url)
         db.add(new_story)

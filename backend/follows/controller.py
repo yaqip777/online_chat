@@ -7,7 +7,6 @@ from backend.auth.models import User
 from backend.auth.service import AuthService
 from backend.database import get_db
 from backend.follows.schemes.post import (
-    FollowStatusSchema,
     UserBriefSchema,
     UserProfileSchema,
 )
@@ -57,23 +56,6 @@ async def get_following(
 ):
     return await FollowService.get_following_paginated(
         db=db, user_id=user_id, cursor=cursor, limit=limit
-    )
- 
- 
-@router.get("/{user_id}/follow-status", response_model=FollowStatusSchema)
-async def get_follow_status(
-    user_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(AuthService.get_current_user),
-):
-    is_following = await FollowService.is_following(
-        db=db, follower_id=current_user.id, following_id=user_id
-    )
-    followers_count, following_count = await FollowService.get_counts(db=db, user_id=user_id)
-    return FollowStatusSchema(
-        is_following=is_following,
-        followers_count=followers_count,
-        following_count=following_count,
     )
  
  

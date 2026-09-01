@@ -22,12 +22,6 @@ class FollowResponseSchema(BaseModel):
     model_config = {"from_attributes": True}
  
  
-class FollowStatusSchema(BaseModel):
-    is_following: bool
-    followers_count: int
-    following_count: int
- 
- 
 class UserProfileSchema(BaseModel):
     id: int
     username: str
