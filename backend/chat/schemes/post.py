@@ -4,7 +4,7 @@ from pydantic import BaseModel
  
  
 class SendMessageSchema(BaseModel):
-    receiver_id: int
+    user_id: int
     text: str | None = None
  
  

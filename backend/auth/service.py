@@ -150,7 +150,7 @@ class AuthService:
         with open(image_path, "wb") as buffer:
             shutil.copyfileobj(image.file, buffer)
 
-        user.profile_picture = f"/{image_path}".replace("\\", "/")
+        user.profile_picture = os.path.basename(image_path)
         db.add(user)
         await db.commit()
         await db.refresh(user)

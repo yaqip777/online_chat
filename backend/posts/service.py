@@ -27,13 +27,13 @@ class PostService:
             image_path = os.path.join(UPLOAD_DIR, f"img_{datetime.now().timestamp()}_{image.filename}")
             with open(image_path, "wb") as buffer:
                 shutil.copyfileobj(image.file, buffer)
-            image_url = f"/{image_path}".replace("\\", "/")
+            image_url = os.path.basename(image_path)
 
         if video:
             video_path = os.path.join(UPLOAD_DIR, f"vid_{datetime.now().timestamp()}_{video.filename}")
             with open(video_path, "wb") as buffer:
                 shutil.copyfileobj(video.file, buffer)
-            video_url = f"/{video_path}".replace("\\", "/")
+            video_url = os.path.basename(video_path)
 
         new_post = Post(
             text=text,

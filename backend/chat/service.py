@@ -20,7 +20,7 @@ def _safe_save(upload: UploadFile, prefix: str) -> str:
     path = os.path.join(UPLOAD_DIR, safe_name)
     with open(path, "wb") as buffer:
         shutil.copyfileobj(upload.file, buffer)
-    return f"/{path}".replace("\\", "/")
+    return os.path.basename(path)
 
  
 class ChatService:

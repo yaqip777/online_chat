@@ -1,6 +1,6 @@
 from datetime import datetime
  
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
  
 from backend.auth.service import AuthService
@@ -22,23 +22,23 @@ MAX_VIDEO_SIZE = 50 * 1024 * 1024
  
 @router.post("/messages", response_model=MessageResponseSchema)
 async def send_message(
-    receiver_id: int = Form(...),
+    user_id: int = Form(...),
     text: str | None = Form(None),
     image: UploadFile | None = File(None),
     video: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(AuthService.get_current_user),
 ):
-    if receiver_id == current_user.id:
+    if user_id == current_user.id:
         raise HTTPException(
             status_code=400, detail="O'zingizga xabar yubora olmaysiz"
         )
  
-    receiver_exists = await ChatService.user_exists(db, receiver_id)
+    receiver_exists = await ChatService.user_exists(db, user_id)
     if not receiver_exists:
         raise HTTPException(
             status_code=404,
-            detail=f"ID={receiver_id} bo'lgan foydalanuvchi topilmadi",
+            detail=f"ID={user_id} bo'lgan foydalanuvchi topilmadi",
         )
 
     has_text = text is not None and text.strip() != ""
@@ -84,7 +84,7 @@ async def send_message(
     return await ChatService.send_message(
         db=db,
         sender_id=current_user.id,
-        receiver_id=receiver_id,
+        receiver_id=user_id,
         text=text,
         image=image,
         video=video,
@@ -104,7 +104,9 @@ async def get_conversations(
     response_model=list[MessageResponseSchema],
 )
 async def get_messages(
-    conversation_id: int,
+    conversation_id: int = Path(
+        ..., 
+    ),
     cursor: datetime | None = None,
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
