@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+import logging
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -7,6 +8,9 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from backend.config import settings
+
+logger = logging.getLogger(__name__)
+
 
 class Base(DeclarativeBase):
     pass
@@ -40,10 +44,19 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def init_db() -> None:
     # Barcha modellarni Base metadata ga ro'yxatdan o'tkazish
     import backend.auth.models  # noqa: F401
+    import backend.chat.models  # noqa: F401
     import backend.follows.models  # noqa: F401
     import backend.posts.models  # noqa: F401
     import backend.stories.models  # noqa: F401
-    import backend.chat.models  # noqa: F401
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables successfully initialized.")
+    except Exception as exc:
+        logger.error(
+            "XATOLIK: PostgreSQL ma'lumotlar bazasiga ulanib bo'lmadi!\n"
+            f"Sabab: {exc}\n"
+            "Iltimos, Render Dashboard -> Environment bo'limida DATABASE_URL to'g'ri sozlanganini tekshiring."
+        )
+        raise exc

@@ -62,12 +62,17 @@ class Settings:
     VIDEO_EXTENSIONS: list[str] = [".mp4", ".mov", ".mkv", ".webm"]
 
     def get_database_url(self) -> str:
-        """PostgreSQL URLni asyncpg drayveri bilan moslashtirish."""
-        url = self.DATABASE_URL
+        """PostgreSQL URLni asyncpg drayveri va SSL sozlamalari bilan moslashtirish."""
+        url = self.DATABASE_URL.strip()
         if url.startswith("postgres://"):
             url = url.replace("postgres://", "postgresql+asyncpg://", 1)
         elif url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
             url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+        # asyncpg drayveri 'sslmode=require' o'rniga 'ssl=require' parametrini tushunadi
+        if "sslmode=" in url:
+            url = url.replace("sslmode=", "ssl=")
+
         return url
 
 
