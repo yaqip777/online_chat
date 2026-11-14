@@ -1,20 +1,15 @@
 from datetime import datetime
-
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+import os
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.auth.service import AuthService
+from backend.config import settings
 from backend.database import get_db
 from backend.stories.schemes.post import StoryResponseSchema
 from backend.stories.service import StoryService
 
 router = APIRouter(prefix="/stories", tags=["Stories"])
-
-IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png"]
-VIDEO_EXTENSIONS = [".mp4", ".mov", ".mkv"]
-
-MAX_IMAGE_SIZE = 10 * 1024 * 1024
-MAX_VIDEO_SIZE = 50 * 1024 * 1024
 
 
 @router.post("/", response_model=StoryResponseSchema)
@@ -24,46 +19,52 @@ async def create_story(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(AuthService.get_current_user),
 ):
-    if not image and not video:
+    has_image = bool(image and image.filename)
+    has_video = bool(video and video.filename)
+
+    if not has_image and not has_video:
         raise HTTPException(
             status_code=400,
-            detail="Story uchun rasm yoki video kerak",
+            detail="Story uchun rasm yoki video fayl yuklanishi shart!",
         )
 
-    if image and image.filename:
-        file_ext = image.filename[image.filename.rfind(".") :].lower()
-        if file_ext not in IMAGE_EXTENSIONS:
+    if has_image:
+        file_ext = os.path.splitext(image.filename)[1].lower()
+        if file_ext not in settings.IMAGE_EXTENSIONS:
             raise HTTPException(
                 status_code=400,
-                detail="Faqat rasm formatidagi fayllar yuklanishi mumkin!",
+                detail=f"Faqat quyidagi rasm formatlari qabul qilinadi: {', '.join(settings.IMAGE_EXTENSIONS)}",
             )
 
         image_content = await image.read()
-        if len(image_content) > MAX_IMAGE_SIZE:
+        if len(image_content) > settings.MAX_IMAGE_SIZE:
             raise HTTPException(
                 status_code=400,
-                detail="Rasm hajmi 10 MB dan oshmasligi kerak!",
+                detail=f"Rasm hajmi {settings.MAX_IMAGE_SIZE // (1024 * 1024)} MB dan oshmasligi kerak!",
             )
         await image.seek(0)
 
-    if video and video.filename:
-        file_ext = video.filename[video.filename.rfind(".") :].lower()
-        if file_ext not in VIDEO_EXTENSIONS:
+    if has_video:
+        file_ext = os.path.splitext(video.filename)[1].lower()
+        if file_ext not in settings.VIDEO_EXTENSIONS:
             raise HTTPException(
                 status_code=400,
-                detail="Faqat video formatidagi fayllar yuklanishi mumkin!",
+                detail=f"Faqat quyidagi video formatlari qabul qilinadi: {', '.join(settings.VIDEO_EXTENSIONS)}",
             )
 
         video_content = await video.read()
-        if len(video_content) > MAX_VIDEO_SIZE:
+        if len(video_content) > settings.MAX_VIDEO_SIZE:
             raise HTTPException(
                 status_code=400,
-                detail="Video hajmi 50 MB dan oshmasligi kerak!",
+                detail=f"Video hajmi {settings.MAX_VIDEO_SIZE // (1024 * 1024)} MB dan oshmasligi kerak!",
             )
         await video.seek(0)
 
     return await StoryService.create_story(
-        db=db, user_id=current_user.id, image=image, video=video
+        db=db,
+        user_id=current_user.id,
+        image=image if has_image else None,
+        video=video if has_video else None,
     )
 
 
@@ -84,3 +85,13 @@ async def get_user_stories(
     db: AsyncSession = Depends(get_db),
 ):
     return await StoryService.get_user_active_stories(db=db, user_id=user_id)
+
+
+@router.delete("/{story_id}")
+async def delete_story(
+    story_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(AuthService.get_current_user),
+):
+    await StoryService.delete_story(db=db, story_id=story_id, user_id=current_user.id)
+    return {"message": "Story muvaffaqiyatli o'chirildi"}

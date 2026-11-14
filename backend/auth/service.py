@@ -1,55 +1,50 @@
-from datetime import datetime, timedelta, timezone
-from os import getenv
-from typing import Optional, TypedDict
 import os
 import shutil
+import uuid
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
-from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, UploadFile, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from backend.auth.models import User
 from backend.auth.schemes.post import LoginSchema, SignupSchema
+from backend.config import settings
 from backend.database import get_db
-
-load_dotenv()
-
-SECRET_KEY = getenv("ACCESS_SECRET_KEY")
-REFRESH_SECRET_KEY = getenv("REFRESH_SECRET_KEY")
-ALGORITHM = "HS256"
-
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-PROFILE_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png"]
-MAX_PROFILE_IMAGE_SIZE = 10 * 1024 * 1024
 
 bearer_scheme = HTTPBearer()
 optional_bearer_scheme = HTTPBearer(auto_error=False)
 
 
-class TokenData(TypedDict):
-    email: str
-
-
 class AuthService:
     @staticmethod
     async def sign_up(data: SignupSchema, db: AsyncSession):
-        result = await db.execute(select(User).where(User.email == data.email))
-        if result.scalar_one_or_none() is not None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already exists",
+        existing_user = await db.execute(
+            select(User).where(
+                or_(User.email == data.email, User.username == data.username)
             )
+        )
+        found = existing_user.scalar_one_or_none()
+        if found is not None:
+            if found.email == data.email:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Bu email allaqachon ro'yxatdan o'tgan",
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Bu username allaqachon band qilingan",
+                )
 
         user = User(
             username=data.username,
             first_name=data.first_name,
             last_name=data.last_name,
-            email=data.email, 
+            email=data.email,
             password=AuthService.get_password_hash(data.password),
         )
         db.add(user)
@@ -57,10 +52,11 @@ class AuthService:
         await db.refresh(user)
 
         tokens = {
-            "access_token": AuthService.create_access_token({"email": user.email}),
-            "refresh_token": AuthService.create_refresh_token({"email": user.email}),
+            "access_token": AuthService.create_access_token({"email": user.email, "user_id": user.id}),
+            "refresh_token": AuthService.create_refresh_token({"email": user.email, "user_id": user.id}),
+            "token_type": "bearer",
         }
-        return {"message": "User registered successfully", "tokens": tokens}
+        return {"message": "Foydalanuvchi muvaffaqiyatli ro'yxatdan o'tdi", "tokens": tokens}
 
     @staticmethod
     async def login(data: LoginSchema, db: AsyncSession):
@@ -70,49 +66,55 @@ class AuthService:
         if user is None or not AuthService.verify_password(data.password, user.password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password",  
+                detail="Email yoki parol noto'g'ri",
             )
 
         tokens = {
-            "access_token": AuthService.create_access_token({"email": user.email}),
-            "refresh_token": AuthService.create_refresh_token({"email": user.email}),
+            "access_token": AuthService.create_access_token({"email": user.email, "user_id": user.id}),
+            "refresh_token": AuthService.create_refresh_token({"email": user.email, "user_id": user.id}),
+            "token_type": "bearer",
         }
-        return {"message": "Login successful", "tokens": tokens}    
-    
+        return {"message": "Tizimga kirish muvaffaqiyatli", "tokens": tokens}
+
     @staticmethod
     def get_password_hash(password: str) -> str:
-        return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        # bcrypt 72 byte limitini hisobga olgan holda
+        pw_bytes = password.encode("utf-8")[:72]
+        return bcrypt.hashpw(pw_bytes, bcrypt.gensalt()).decode("utf-8")
 
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:
-        return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
+        pw_bytes = plain_password.encode("utf-8")[:72]
+        return bcrypt.checkpw(pw_bytes, hashed_password.encode("utf-8"))
 
     @staticmethod
     def create_access_token(data: dict) -> str:
         to_encode = data.copy()
-        expire = datetime.now(timezone.utc) + timedelta(minutes=30)
-        to_encode.update({"exp": expire})
-        return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        to_encode.update({"exp": expire, "type": "access"})
+        return jwt.encode(to_encode, settings.ACCESS_SECRET_KEY, algorithm=settings.ALGORITHM)
 
     @staticmethod
     def create_refresh_token(data: dict) -> str:
         to_encode = data.copy()
-        expire = datetime.now(timezone.utc) + timedelta(days=7)
-        to_encode.update({"exp": expire})
-        return jwt.encode(to_encode, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
-    
+        expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        to_encode.update({"exp": expire, "type": "refresh"})
+        return jwt.encode(to_encode, settings.REFRESH_SECRET_KEY, algorithm=settings.ALGORITHM)
+
     @staticmethod
     async def refresh_access_token(refresh_token: str, db: AsyncSession) -> dict:
         credentials_exception = HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate refresh token",
+            detail="Refresh token yaroqsiz yoki muddati o'tgan",
         )
         try:
-            payload = jwt.decode(refresh_token, REFRESH_SECRET_KEY, algorithms=[ALGORITHM])
+            payload = jwt.decode(
+                refresh_token, settings.REFRESH_SECRET_KEY, algorithms=[settings.ALGORITHM]
+            )
             email = payload.get("email")
             if email is None:
                 raise credentials_exception
-        except jwt.PyJWTError:  
+        except jwt.PyJWTError:
             raise credentials_exception
 
         result = await db.execute(select(User).where(User.email == email))
@@ -120,37 +122,45 @@ class AuthService:
         if user is None:
             raise credentials_exception
 
-        new_access_token = AuthService.create_access_token({"email": user.email})
-        return {"access_token": new_access_token}
-
+        new_access_token = AuthService.create_access_token({"email": user.email, "user_id": user.id})
+        return {"access_token": new_access_token, "token_type": "bearer"}
 
     @staticmethod
     async def update_profile_picture(db: AsyncSession, user: User, image: UploadFile) -> User:
-        if not image.filename:
-            raise HTTPException(status_code=400, detail="Rasm tanlanmadi")
+        if not image or not image.filename:
+            raise HTTPException(status_code=400, detail="Rasm fayli tanlanmadi")
 
-        file_ext = image.filename[image.filename.rfind("."):].lower()
-        if file_ext not in PROFILE_IMAGE_EXTENSIONS:
+        file_ext = os.path.splitext(image.filename)[1].lower()
+        if file_ext not in settings.IMAGE_EXTENSIONS:
             raise HTTPException(
                 status_code=400,
-                detail="Faqat rasm formatidagi fayllar yuklanishi mumkin!",
+                detail=f"Faqat quyidagi rasm formatlari qabul qilinadi: {', '.join(settings.IMAGE_EXTENSIONS)}",
             )
 
         content = await image.read()
-        if len(content) > MAX_PROFILE_IMAGE_SIZE:
+        if len(content) > settings.MAX_IMAGE_SIZE:
             raise HTTPException(
                 status_code=400,
-                detail="Rasm hajmi 10 MB dan oshmasligi kerak!",
+                detail=f"Rasm hajmi {settings.MAX_IMAGE_SIZE // (1024 * 1024)} MB dan oshmasligi kerak!",
             )
         await image.seek(0)
 
-        image_path = os.path.join(
-            UPLOAD_DIR, f"avatar_{user.id}_{datetime.now().timestamp()}{file_ext}"
-        )
-        with open(image_path, "wb") as buffer:
+        # Eski profil rasmini o'chirish (agar mavjud bo'lsa)
+        if user.profile_picture:
+            old_path = settings.UPLOAD_DIR / user.profile_picture
+            if old_path.exists() and old_path.is_file():
+                try:
+                    old_path.unlink()
+                except OSError:
+                    pass
+
+        safe_filename = f"avatar_{user.id}_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}{file_ext}"
+        target_path = settings.UPLOAD_DIR / safe_filename
+
+        with open(target_path, "wb") as buffer:
             shutil.copyfileobj(image.file, buffer)
 
-        user.profile_picture = os.path.basename(image_path)
+        user.profile_picture = safe_filename
         db.add(user)
         await db.commit()
         await db.refresh(user)
@@ -163,10 +173,12 @@ class AuthService:
     ) -> User:
         credentials_exception = HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail="Autentifikatsiyadan o'tilmagan",
         )
         try:
-            payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+            payload = jwt.decode(
+                credentials.credentials, settings.ACCESS_SECRET_KEY, algorithms=[settings.ALGORITHM]
+            )
             email = payload.get("email")
             if email is None:
                 raise credentials_exception
@@ -188,7 +200,9 @@ class AuthService:
         if credentials is None:
             return None
         try:
-            payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+            payload = jwt.decode(
+                credentials.credentials, settings.ACCESS_SECRET_KEY, algorithms=[settings.ALGORITHM]
+            )
             email = payload.get("email")
             if email is None:
                 return None

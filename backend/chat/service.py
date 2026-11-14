@@ -1,61 +1,55 @@
 import os
 import shutil
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import UploadFile
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
- 
+
 from backend.auth.models import User
 from backend.chat.models import Conversation, Message
+from backend.config import settings
 from backend.websocket.service import manager
-
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 def _safe_save(upload: UploadFile, prefix: str) -> str:
-    file_ext = os.path.splitext(upload.filename)[1].lower()
-    safe_name = f"{prefix}_{datetime.now().timestamp()}{file_ext}"
-    path = os.path.join(UPLOAD_DIR, safe_name)
+    file_ext = os.path.splitext(upload.filename)[1].lower() if upload.filename else ""
+    safe_name = f"{prefix}_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:8]}{file_ext}"
+    path = settings.UPLOAD_DIR / safe_name
     with open(path, "wb") as buffer:
         shutil.copyfileobj(upload.file, buffer)
-    return os.path.basename(path)
+    return safe_name
 
- 
+
 class ChatService:
     @staticmethod
     async def user_exists(db: AsyncSession, user_id: int) -> bool:
         result = await db.execute(select(User.id).where(User.id == user_id))
         return result.scalar_one_or_none() is not None
- 
+
     @staticmethod
     async def get_or_create_conversation(
         db: AsyncSession, user_a_id: int, user_b_id: int
     ) -> Conversation:
+        # Har doim kichik id user_one_id bo'lishi orqali dublikatlarning oldini olamiz
+        low_id, high_id = sorted([user_a_id, user_b_id])
+
         query = select(Conversation).where(
-            or_(
-                and_(
-                    Conversation.user_one_id == user_a_id,
-                    Conversation.user_two_id == user_b_id,
-                ),
-                and_(
-                    Conversation.user_one_id == user_b_id,
-                    Conversation.user_two_id == user_a_id,
-                ),
-            )
+            Conversation.user_one_id == low_id,
+            Conversation.user_two_id == high_id,
         )
         result = await db.execute(query)
         conversation = result.scalar_one_or_none()
         if conversation:
             return conversation
- 
-        conversation = Conversation(user_one_id=user_a_id, user_two_id=user_b_id)
+
+        conversation = Conversation(user_one_id=low_id, user_two_id=high_id)
         db.add(conversation)
         await db.commit()
         await db.refresh(conversation)
         return conversation
- 
+
     @staticmethod
     async def send_message(
         db: AsyncSession,
@@ -83,20 +77,23 @@ class ChatService:
         await db.commit()
         await db.refresh(message)
 
+        # Real-time WebSocket orqali xabar yetkazish
         await manager.send_to_user(
             receiver_id,
             {
                 "type": "chat:message",
+                "message_id": message.id,
                 "conversation_id": conversation.id,
                 "from_user_id": sender_id,
                 "text": text,
                 "image_url": image_url,
                 "video_url": video_url,
+                "created_at": message.created_at.isoformat() if message.created_at else None,
             },
         )
- 
+
         return message
- 
+
     @staticmethod
     async def get_user_conversations(
         db: AsyncSession, user_id: int
@@ -112,8 +109,8 @@ class ChatService:
             .order_by(Conversation.created_at.desc())
         )
         result = await db.execute(query)
-        return result.scalars().all()
- 
+        return list(result.scalars().all())
+
     @staticmethod
     async def is_participant(
         db: AsyncSession, conversation_id: int, user_id: int
@@ -127,7 +124,7 @@ class ChatService:
         )
         result = await db.execute(query)
         return result.scalar_one_or_none() is not None
- 
+
     @staticmethod
     async def get_messages_paginated(
         db: AsyncSession,
@@ -136,12 +133,12 @@ class ChatService:
         limit: int = 20,
     ) -> list[Message]:
         query = select(Message).where(Message.conversation_id == conversation_id)
- 
+
         if cursor:
             if cursor.tzinfo is not None:
                 cursor = cursor.astimezone(timezone.utc).replace(tzinfo=None)
             query = query.filter(Message.created_at < cursor)
- 
+
         query = query.order_by(Message.created_at.desc()).limit(limit)
         result = await db.execute(query)
-        return result.scalars().all()
+        return list(result.scalars().all())

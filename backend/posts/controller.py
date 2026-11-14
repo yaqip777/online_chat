@@ -1,18 +1,16 @@
 from datetime import datetime
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+import os
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.database import get_db
+
 from backend.auth.service import AuthService
-from backend.posts.service import PostService
+from backend.config import settings
+from backend.database import get_db
 from backend.posts.schemes.post import PostResponseSchema
+from backend.posts.service import PostService
 
 router = APIRouter(prefix="/posts", tags=["Posts"])
 
-IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png"]
-VIDEO_EXTENSIONS = [".mp4", ".mov",".mkv"]
-
-MAX_IMAGE_SIZE = 10 * 1024 * 1024  
-MAX_VIDEO_SIZE = 50 * 1024 * 1024  
 
 @router.post("/", response_model=PostResponseSchema)
 async def create_post(
@@ -20,7 +18,7 @@ async def create_post(
     image: UploadFile | None = File(None),
     video: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(AuthService.get_current_user)
+    current_user=Depends(AuthService.get_current_user),
 ):
     has_text = text is not None and text.strip() != ""
     has_image = bool(image and image.filename)
@@ -32,52 +30,53 @@ async def create_post(
             detail="Post uchun matn, rasm yoki video kamida bittasi kerak!",
         )
 
-    if image and image.filename:
-        file_ext = image.filename[image.filename.rfind(".") :].lower()
-        if file_ext not in IMAGE_EXTENSIONS:
+    if has_image:
+        file_ext = os.path.splitext(image.filename)[1].lower()
+        if file_ext not in settings.IMAGE_EXTENSIONS:
             raise HTTPException(
                 status_code=400,
-                detail="Faqat rasm formatidagi fayllar yuklanishi mumkin!",
+                detail=f"Faqat quyidagi rasm formatlari qabul qilinadi: {', '.join(settings.IMAGE_EXTENSIONS)}",
             )
-        
-        image_content = await image.read()
-        if len(image_content) > MAX_IMAGE_SIZE:
-            raise HTTPException(
-                status_code=400,
-                detail="Rasm hajmi 10 MB dan oshmasligi kerak!",
-            )
-        await image.seek(0) 
 
-    if video and video.filename:
-        file_ext = video.filename[video.filename.rfind(".") :].lower()
-        if file_ext not in VIDEO_EXTENSIONS:
+        image_content = await image.read()
+        if len(image_content) > settings.MAX_IMAGE_SIZE:
             raise HTTPException(
                 status_code=400,
-                detail="Faqat video formatidagi fayllar yuklanishi mumkin!",
+                detail=f"Rasm hajmi {settings.MAX_IMAGE_SIZE // (1024 * 1024)} MB dan oshmasligi kerak!",
             )
-        
+        await image.seek(0)
+
+    if has_video:
+        file_ext = os.path.splitext(video.filename)[1].lower()
+        if file_ext not in settings.VIDEO_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Faqat quyidagi video formatlari qabul qilinadi: {', '.join(settings.VIDEO_EXTENSIONS)}",
+            )
+
         video_content = await video.read()
-        if len(video_content) > MAX_VIDEO_SIZE:
+        if len(video_content) > settings.MAX_VIDEO_SIZE:
             raise HTTPException(
                 status_code=400,
-                detail="Video hajmi 50 MB dan oshmasligi kerak!",
+                detail=f"Video hajmi {settings.MAX_VIDEO_SIZE // (1024 * 1024)} MB dan oshmasligi kerak!",
             )
-        await video.seek(0) 
+        await video.seek(0)
 
     return await PostService.create_post(
-        db=db, 
-        user_id=current_user.id, 
-        text=text, 
-        image=image, 
-        video=video
+        db=db,
+        user_id=current_user.id,
+        text=text,
+        image=image if has_image else None,
+        video=video if has_video else None,
     )
+
 
 @router.get("/", response_model=list[PostResponseSchema])
 async def get_posts(
     cursor: datetime | None = None,
     limit: int = 10,
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(AuthService.get_current_user_optional),
+    current_user=Depends(AuthService.get_current_user_optional),
 ):
     current_user_id = current_user.id if current_user else None
     return await PostService.get_posts_paginated(
@@ -85,11 +84,33 @@ async def get_posts(
     )
 
 
+@router.get("/{post_id}", response_model=PostResponseSchema)
+async def get_post(
+    post_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(AuthService.get_current_user_optional),
+):
+    current_user_id = current_user.id if current_user else None
+    return await PostService.get_post_by_id(
+        db=db, post_id=post_id, current_user_id=current_user_id
+    )
+
+
+@router.delete("/{post_id}")
+async def delete_post(
+    post_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(AuthService.get_current_user),
+):
+    await PostService.delete_post(db=db, post_id=post_id, user_id=current_user.id)
+    return {"message": "Post muvaffaqiyatli o'chirildi"}
+
+
 @router.post("/{post_id}/like")
 async def like_post(
     post_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(AuthService.get_current_user),
+    current_user=Depends(AuthService.get_current_user),
 ):
     await PostService.like_post(db=db, user_id=current_user.id, post_id=post_id)
     return {"message": "Layk qo'yildi"}
@@ -99,7 +120,7 @@ async def like_post(
 async def unlike_post(
     post_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(AuthService.get_current_user),
+    current_user=Depends(AuthService.get_current_user),
 ):
     await PostService.unlike_post(db=db, user_id=current_user.id, post_id=post_id)
     return {"message": "Layk olib tashlandi"}

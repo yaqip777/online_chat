@@ -1,0 +1,19 @@
+[Unit]
+Description=Online Chat FastAPI Application Service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/online_chat
+EnvironmentFile=/var/www/online_chat/.env
+ExecStart=/var/www/online_chat/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000 --workers 4 --proxy-headers --forwarded-allow-ips='*'
+Restart=always
+RestartSec=5s
+KillMode=mixed
+TimeoutStopSec=10s
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

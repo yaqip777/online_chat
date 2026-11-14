@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from backend.auth.models import User
-from backend.auth.schemes.post import RefreshSchema
-from backend.auth.schemes.post import LoginSchema, SignupSchema
+from backend.auth.schemes.post import LoginSchema, RefreshSchema, SignupSchema
 from backend.auth.service import AuthService
 from backend.database import get_db
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(prefix="/auth", tags=["Auth"])
+
 
 @router.post("/signup")
 async def signup(data: SignupSchema, db: AsyncSession = Depends(get_db)):
@@ -29,6 +30,7 @@ async def me(current_user: User = Depends(AuthService.get_current_user)):
         "profile_picture": current_user.profile_picture,
     }
 
+
 @router.post("/refresh")
 async def refresh(data: RefreshSchema, db: AsyncSession = Depends(get_db)):
     return await AuthService.refresh_access_token(data.refresh_token, db)
@@ -42,6 +44,6 @@ async def upload_profile_picture(
 ):
     user = await AuthService.update_profile_picture(db, current_user, image)
     return {
-        "message": "Profil rasmi yangilandi",
+        "message": "Profil rasmi muvaffaqiyatli yangilandi",
         "profile_picture": user.profile_picture,
     }

@@ -1,25 +1,20 @@
 from datetime import datetime
- 
+import os
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
- 
+
 from backend.auth.service import AuthService
 from backend.chat.schemes.post import (
     ConversationResponseSchema,
     MessageResponseSchema,
 )
 from backend.chat.service import ChatService
+from backend.config import settings
 from backend.database import get_db
- 
+
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
-IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png"]
-VIDEO_EXTENSIONS = [".mp4", ".mov", ".mkv"]
 
-MAX_IMAGE_SIZE = 10 * 1024 * 1024
-MAX_VIDEO_SIZE = 50 * 1024 * 1024
- 
- 
 @router.post("/messages", response_model=MessageResponseSchema)
 async def send_message(
     user_id: int = Form(...),
@@ -33,7 +28,7 @@ async def send_message(
         raise HTTPException(
             status_code=400, detail="O'zingizga xabar yubora olmaysiz"
         )
- 
+
     receiver_exists = await ChatService.user_exists(db, user_id)
     if not receiver_exists:
         raise HTTPException(
@@ -52,61 +47,59 @@ async def send_message(
         )
 
     if has_image:
-        file_ext = image.filename[image.filename.rfind(".") :].lower()
-        if file_ext not in IMAGE_EXTENSIONS:
+        file_ext = os.path.splitext(image.filename)[1].lower()
+        if file_ext not in settings.IMAGE_EXTENSIONS:
             raise HTTPException(
                 status_code=400,
-                detail="Faqat rasm formatidagi fayllar yuklanishi mumkin!",
+                detail=f"Faqat quyidagi rasm formatlari qabul qilinadi: {', '.join(settings.IMAGE_EXTENSIONS)}",
             )
         image_content = await image.read()
-        if len(image_content) > MAX_IMAGE_SIZE:
+        if len(image_content) > settings.MAX_IMAGE_SIZE:
             raise HTTPException(
                 status_code=400,
-                detail="Rasm hajmi 10 MB dan oshmasligi kerak!",
+                detail=f"Rasm hajmi {settings.MAX_IMAGE_SIZE // (1024 * 1024)} MB dan oshmasligi kerak!",
             )
         await image.seek(0)
 
     if has_video:
-        file_ext = video.filename[video.filename.rfind(".") :].lower()
-        if file_ext not in VIDEO_EXTENSIONS:
+        file_ext = os.path.splitext(video.filename)[1].lower()
+        if file_ext not in settings.VIDEO_EXTENSIONS:
             raise HTTPException(
                 status_code=400,
-                detail="Faqat video formatidagi fayllar yuklanishi mumkin!",
+                detail=f"Faqat quyidagi video formatlari qabul qilinadi: {', '.join(settings.VIDEO_EXTENSIONS)}",
             )
         video_content = await video.read()
-        if len(video_content) > MAX_VIDEO_SIZE:
+        if len(video_content) > settings.MAX_VIDEO_SIZE:
             raise HTTPException(
                 status_code=400,
-                detail="Video hajmi 50 MB dan oshmasligi kerak!",
+                detail=f"Video hajmi {settings.MAX_VIDEO_SIZE // (1024 * 1024)} MB dan oshmasligi kerak!",
             )
         await video.seek(0)
- 
+
     return await ChatService.send_message(
         db=db,
         sender_id=current_user.id,
         receiver_id=user_id,
         text=text,
-        image=image,
-        video=video,
+        image=image if has_image else None,
+        video=video if has_video else None,
     )
- 
- 
+
+
 @router.get("/conversations", response_model=list[ConversationResponseSchema])
 async def get_conversations(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(AuthService.get_current_user),
 ):
     return await ChatService.get_user_conversations(db=db, user_id=current_user.id)
- 
- 
+
+
 @router.get(
     "/conversations/{conversation_id}/messages",
     response_model=list[MessageResponseSchema],
 )
 async def get_messages(
-    conversation_id: int = Path(
-        ..., 
-    ),
+    conversation_id: int = Path(...),
     cursor: datetime | None = None,
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
@@ -117,7 +110,7 @@ async def get_messages(
         raise HTTPException(
             status_code=403, detail="Bu suhbatga kirish huquqingiz yo'q"
         )
- 
+
     return await ChatService.get_messages_paginated(
         db=db, conversation_id=conversation_id, cursor=cursor, limit=limit
     )
