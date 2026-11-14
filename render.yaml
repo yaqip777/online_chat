@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: online-chat
+    runtime: python
+    buildCommand: uv sync
+    startCommand: uv run uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: ACCESS_SECRET_KEY
+        generateValue: true
+      - key: REFRESH_SECRET_KEY
+        generateValue: true
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "1440"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "7"
+      - key: CORS_ORIGINS
+        value: '["*"]'
